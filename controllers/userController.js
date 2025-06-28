@@ -51,7 +51,7 @@ exports.loginOrRegisterUser = async (req, res) => {
 };
 
 // @desc    Get all users (Admin only)
-// @route   GET /api/users/:adminUsername
+// @route   GET /api/users
 exports.getAllUsers = async (req, res) => {
   try {
     const admin = await User.findOne({ username: req.query.adminUsername });
@@ -89,9 +89,6 @@ exports.deleteUser = async (req, res) => {
       return res.status(404).json({ error: 'User to delete not found' });
     }
 
-    // Find all posts by the user
-    const postsToAnonymize = await Post.find({ username: usernameToDelete });
-
     // Anonymize posts
     await Post.updateMany(
       { username: usernameToDelete },
@@ -108,6 +105,67 @@ exports.deleteUser = async (req, res) => {
     res.status(200).json({ success: true, message: 'User deleted and posts anonymized.' });
   } catch (error) {
     console.error('Delete user error:', error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
+};
+
+// @desc    Update user's own nickname
+// @route   PUT /api/users/me/nickname
+exports.updateMyNickname = async (req, res) => {
+  try {
+    // req.user.id is added by the 'protect' middleware
+    const { newNickname } = req.body;
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+    
+    // Update nickname in User model
+    user.nickname = newNickname;
+    await user.save();
+    
+    // Update nickname in all their posts
+    await Post.updateMany({ username: user.username }, { nickname: newNickname });
+
+    req.io.emit('posts_updated'); // Notify clients to refresh posts
+
+    res.json({ success: true, data: { nickname: newNickname } });
+  } catch (error) {
+    console.error('Update nickname error:', error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
+};
+
+// @desc    Delete user's own account
+// @route   DELETE /api/users/me
+exports.deleteMyAccount = async (req, res) => {
+  try {
+    // req.user.id is added by the 'protect' middleware
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (user.role === 'admin') {
+      return res.status(400).json({ success: false, error: 'Admins cannot delete their accounts this way.' });
+    }
+
+    // Anonymize user's posts
+    await Post.updateMany(
+      { username: user.username },
+      { $set: { username: `deleted_${Date.now()}`, nickname: 'Anonymous' } }
+    );
+
+    // Delete the user
+    await User.deleteOne({ _id: req.user.id });
+
+    req.io.emit('posts_updated'); // Notify clients to refresh posts
+
+    res.status(200).json({ success: true, message: 'Account deleted and posts anonymized.' });
+  } catch (error) {
+    console.error('Delete account error:', error);
     res.status(500).json({ success: false, error: 'Server Error' });
   }
 };
