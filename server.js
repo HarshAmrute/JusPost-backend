@@ -9,34 +9,24 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
+
+// Allow all origins (for global API access)
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:3000", // Your frontend URL
-    methods: ["GET", "POST"]
+    origin: '*',
+    methods: ['GET', 'POST'],
   }
 });
 
-const PORT = process.env.PORT || 5001;
-
 // Middleware
-const allowedOrigins = ['http://localhost:3000', 'http://localhost:3001'];
-
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: '*', // Allow all origins
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
 }));
 app.use(express.json());
 
-// Make io accessible to our router
+// Inject io into requests
 app.use((req, res, next) => {
   req.io = io;
   next();
@@ -48,7 +38,8 @@ mongoose.connect(process.env.MONGODB_URI, {
   useUnifiedTopology: true,
 }).then(() => {
   console.log('MongoDB connected');
-  // Ensure admin user exists
+
+  // Seed admin
   const User = require('./models/userModel');
   const seedAdmin = async () => {
     try {
@@ -63,12 +54,13 @@ mongoose.connect(process.env.MONGODB_URI, {
     }
   };
   seedAdmin();
-}).catch(err => console.log('MongoDB connection error:', err));
+}).catch(err => console.error('MongoDB connection error:', err));
 
 // Routes
 app.get('/', (req, res) => {
   res.send('JusPost Backend API is running...');
 });
+
 const postsRoutes = require('./routes/posts');
 const usersRoutes = require('./routes/users');
 const privatePostsRoutes = require('./routes/privatePosts');
@@ -77,7 +69,7 @@ app.use('/api/posts', postsRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/private-posts', privatePostsRoutes);
 
-// Socket.IO connection
+// Socket.IO Events
 io.on('connection', (socket) => {
   console.log('a user connected:', socket.id);
   socket.on('disconnect', () => {
@@ -85,7 +77,8 @@ io.on('connection', (socket) => {
   });
 });
 
-// Start the server
+// Start server
+const PORT = process.env.PORT || 5001;
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
